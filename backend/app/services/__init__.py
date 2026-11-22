@@ -7,6 +7,7 @@ from app.services.feature_define import FeatureDefineService
 from app.services.feature_group import FeatureGroupService
 from app.services.data_slice import DataSliceService
 from app.services.feature_compute import FeatureComputeService
+from app.services.compute_plan import ComputePlanService
 from app.services.feature_selection import FeatureSelectionService
 from app.services.feature_iv import FeatureIvService
 from app.services.feature_snapshot import FeatureSnapshotService
@@ -27,6 +28,7 @@ SERVICES: dict[str, BaseModuleService] = {
     "feature_group": FeatureGroupService(),
     "data_slice": DataSliceService(),
     "feature_compute": FeatureComputeService(),
+    "compute_plan": ComputePlanService(),
     "feature_selection": FeatureSelectionService(),
     "feature_iv": FeatureIvService(),
     "feature_snapshot": FeatureSnapshotService(),

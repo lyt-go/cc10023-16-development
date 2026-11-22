@@ -108,3 +108,72 @@ class FeatureDefineService(BaseModuleService):
                 "version": r.get("特征版本"),
             })
         return catalog
+
+    # ── 依赖编排：字段版本目录 ──
+    def _find_by_name(self, field: str) -> dict[str, Any] | None:
+        for row in store.rows(self.MODULE):
+            if row.get("特征名称") == field:
+                return row
+        return None
+
+    def export_field_versions(self) -> dict[str, Any]:
+        """从特征定义目录导出字段版本数据：默认版本指针 + 各版本的逻辑/依赖/状态。
+
+        这是依赖编排的唯一目录输入；只有带版本目录的定义才参与依赖解析。
+        """
+        catalog: dict[str, Any] = {}
+        for row in store.rows(self.MODULE):
+            versions = row.get("版本目录")
+            name = row.get("特征名称")
+            if not versions or not name:
+                continue
+            catalog[str(name)] = {
+                "default": row.get("默认版本") or row.get("特征版本"),
+                "versions": {ver: dict(spec) for ver, spec in versions.items()},
+            }
+        return catalog
+
+    def upsert_field_version(self, field: str, version: str, spec: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+        """向目录写入字段的新版本（逻辑、依赖、状态），不改变默认版本指针。"""
+        row = self._find_by_name(field)
+        if row is None:
+            return None, f"字段 {field} 不在特征定义目录"
+        versions = row.setdefault("版本目录", {})
+        versions[version] = {
+            "logic": spec.get("logic"),
+            "deps": list(spec.get("deps", [])),
+            "status": spec.get("status", "已生效"),
+            "source": spec.get("source", row.get("数据来源", "")),
+        }
+        return row, f"{field}@{version} 已写入目录（当前默认 {row.get('默认版本')}）"
+
+    def set_default_version(self, field: str, version: str) -> tuple[dict[str, Any] | None, str]:
+        """切换字段的默认版本；展示字段跟随默认版本，已废弃字段切到生效版本时自动恢复。"""
+        row = self._find_by_name(field)
+        if row is None:
+            return None, f"字段 {field} 不在特征定义目录"
+        versions = row.get("版本目录", {})
+        spec = versions.get(version)
+        if spec is None:
+            return None, f"{field}@{version} 不在目录中，无法设为默认"
+        row["默认版本"] = version
+        row["特征版本"] = version
+        row["计算逻辑"] = spec.get("logic", row.get("计算逻辑"))
+        if spec.get("status") == "已生效" and row.get("status") == "已废弃":
+            row["status"] = "已生效"
+            row["abnormal"] = False
+        return row, f"{field} 默认版本已切换为 {version}"
+
+    def sync_execution_result(self, produced: list[dict[str, Any]], snapshot_no: str, plan_no: str, executed_at: str) -> list[str]:
+        """执行结果与定义目录同步关联：回写每个产出列最近执行的版本、快照与计划。"""
+        synced = []
+        for column in produced:
+            row = self._find_by_name(str(column.get("field")))
+            if row is None:
+                continue
+            row["最近执行版本"] = column.get("version")
+            row["最近快照编号"] = snapshot_no
+            row["最近计划编号"] = plan_no
+            row["最近执行时间"] = executed_at
+            synced.append(str(column.get("field")))
+        return synced

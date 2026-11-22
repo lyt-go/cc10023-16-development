@@ -11,7 +11,7 @@
 .
 ├── frontend/                 Vue 3 + Vite + TypeScript 前端
 │   ├── src/views/WorkbenchView.vue|tsx  全部模块共享工作台
-│   ├── src/data/modules.ts              18个业务模块配置
+│   ├── src/data/modules.ts              19个业务模块配置
 │   ├── src/api/              统一请求封装
 │   └── vite.config.ts        dev server 配置（open: false）
 ├── backend/                  FastAPI（Python） 后端
@@ -55,6 +55,7 @@ npm run dev
 | 特征组管理 | `feature_group` | 特征组 | 组编号、组名称、包含特征 |
 | 数据切片配置 | `data_slice` | 切片配置 | 切片编号、切片名称、数据来源 |
 | 特征计算任务 | `feature_compute` | 计算任务 | 任务编号、关联特征、数据切片 |
+| 计算计划 | `compute_plan` | 计算计划 | 计划编号、来源定义、可执行列 |
 | 特征筛选策略 | `feature_selection` | 筛选策略 | 策略编号、特征集、筛选方法 |
 | 特征重要性分析 | `feature_iv` | 重要性评估 | 评估编号、关联特征、信息值IV |
 | 特征快照管理 | `feature_snapshot` | 特征快照 | 快照编号、特征集、快照日期 |
@@ -76,6 +77,31 @@ npm run dev
   `frontend/src/domain/<模块>.ts`，用于承载真实业务差异并维持36题位容量。
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
+
+## 依赖编排（compute_plan）
+
+特征定义目录按字段维护多版本（`版本目录` + `默认版本`），依赖编排从目录导出
+字段版本数据，解析依赖、识别环路与废弃引用，生成可稳定执行的输入计划：
+
+- `POST /api/orchestration/compile` 选中多条定义一次提交，编译回执逐条列出
+  执行或拒绝结果；定版时锁定直接与间接依赖的确切版本，被阻塞列带诊断
+  （根字段、缺失/环路路径）且不进入可执行部分，独立列按拓扑序可执行。
+- `POST /api/orchestration/plans/{id}/accept` 受理计划，编号与输入版本冻结；
+  同一编号重下发不跟随目录默认版本变更。
+- `POST /api/orchestration/plans/{id}/execute` 以受理计划为输入执行计算，
+  生成结果快照（实际产出的列、所用依赖和各自版本），回写任务详情并
+  与定义目录同步关联；旧快照按原版本保留。
+- `GET /api/orchestration/tasks/{id}/progress` 进度中可查被阻塞的列及原因。
+- `POST /api/orchestration/catalog/{field}/versions/{ver}` 与
+  `POST /api/orchestration/catalog/{field}/default` 管理目录版本与默认指针，
+  只影响之后编译的新计划。
+
+端到端验证（批量编译三点环 C→D→E→C、依赖废弃 base_income 的 income、
+独立链 freq→count，以及目录变更后旧计划重跑与新计划重算）：
+
+```bash
+cd backend && .venv/bin/python scripts/verify_dependency_orchestration.py
+```
 
 领域：数据工程
 子方向：数据分析与数据应用

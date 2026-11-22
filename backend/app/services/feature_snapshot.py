@@ -17,6 +17,11 @@ class FeatureSnapshotService(BaseModuleService):
     ACTION_RULES = {"创建快照": "创建中", "确认完成": "已完成", "标记过期": "已过期"}
     NEGATIVE_ACTIONS = []
 
+    # ── 依赖编排：结果快照详情 ──
+    def get_snapshot_detail(self, snapshot_id: int) -> dict[str, Any] | None:
+        """结果快照详情：实际产出的列、所用依赖和各自版本、未执行列及原因。"""
+        return store.find(self.MODULE, snapshot_id)
+
     # ── 链路1: 特征计算 → 特征快照 ──
     def archive_expired_snapshots(self) -> dict[str, Any]:
         """将超过保留天数的特征快照自动归档，并清理过期记录。"""

@@ -653,3 +653,66 @@ SEED_ROWS: dict[str, list[dict[str, Any]]] = {
   '标注状态': '业务场景标注样例3',
   '场景版本': '业务场景标注样例3'}]
 }
+
+
+# ── 依赖编排演示目录：版本化字段定义（三点环、废弃引用、独立链） ──
+def _versioned_define(
+    row_id: int,
+    code: str,
+    name: str,
+    ftype: str,
+    source: str,
+    default: str,
+    versions: dict[str, Any],
+    status: str = "已生效",
+    abnormal: bool = False,
+) -> dict[str, Any]:
+    """构造带版本目录的特征定义行；展示字段跟随默认版本。"""
+    spec = versions[default]
+    return {
+        "id": row_id,
+        "status": status,
+        "pending": status not in ("已生效", "已废弃"),
+        "abnormal": abnormal,
+        "特征编号": code,
+        "特征名称": name,
+        "特征类型": ftype,
+        "计算逻辑": spec.get("logic"),
+        "数据来源": source,
+        "缺失填充": "0",
+        "取值范围": ">=0",
+        "特征版本": default,
+        "默认版本": default,
+        "版本目录": versions,
+    }
+
+
+SEED_ROWS["feature_define"].extend([
+    # 独立链 freq → count：count@v1 只统计 click，freq = count / 窗口天数
+    _versioned_define(4, "FEAT-0101", "count", "整数", "events", "v1", {
+        "v1": {"logic": "count_click_events", "deps": [], "status": "已生效", "source": "events"},
+    }),
+    _versioned_define(5, "FEAT-0102", "freq", "整数", "events", "v1", {
+        "v1": {"logic": "freq_per_window", "deps": ["count"], "status": "已生效", "source": "events"},
+    }),
+    # income → base_income：base_income 唯一版本已废弃，首轮编译阻塞 income
+    _versioned_define(6, "FEAT-0103", "income", "金额", "salary_records", "v1", {
+        "v1": {"logic": "income_with_bonus", "deps": ["base_income"], "status": "已生效", "source": "salary_records"},
+    }),
+    _versioned_define(7, "FEAT-0104", "base_income", "金额", "salary_records", "v1", {
+        "v1": {"logic": "legacy_base_income", "deps": [], "status": "已废弃", "source": "salary_records"},
+    }, status="已废弃", abnormal=True),
+    # 三点环 C → D → E → C：编译期识别环路，三列全部阻塞
+    _versioned_define(8, "FEAT-0105", "C", "整数", "events", "v1", {
+        "v1": {"logic": "cycle_passthrough", "deps": ["D"], "status": "已生效", "source": "events"},
+    }),
+    _versioned_define(9, "FEAT-0106", "D", "整数", "events", "v1", {
+        "v1": {"logic": "cycle_passthrough", "deps": ["E"], "status": "已生效", "source": "events"},
+    }),
+    _versioned_define(10, "FEAT-0107", "E", "整数", "events", "v1", {
+        "v1": {"logic": "cycle_passthrough", "deps": ["C"], "status": "已生效", "source": "events"},
+    }),
+])
+
+# 计算计划（依赖编排）：计划由批量编译生成，种子为空表
+SEED_ROWS["compute_plan"] = []
